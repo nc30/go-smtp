@@ -13,6 +13,7 @@ type SMTPError struct {
 	Code         int
 	EnhancedCode EnhancedCode
 	Message      string
+	ForceClose   bool
 }
 
 // NoEnhancedCode is used to indicate that enhanced error code should not be

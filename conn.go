@@ -7,24 +7,30 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"net"
 	"net/textproto"
+	"os"
 	"regexp"
 	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 // Number of errors we'll tolerate per connection before closing. Defaults to 3.
 const errThreshold = 3
 
+var reqid uint64
+
 type ConnectionState struct {
 	Hostname   string
 	LocalAddr  net.Addr
 	RemoteAddr net.Addr
 	TLS        tls.ConnectionState
+	Conn       *Conn
 }
 
 type Conn struct {
@@ -48,6 +54,9 @@ type Conn struct {
 
 	fromReceived bool
 	recipients   []string
+
+	ID  string
+	Log *log.Logger
 }
 
 func newConn(c net.Conn, s *Server) *Conn {
@@ -88,6 +97,15 @@ func (c *Conn) init() {
 	}
 
 	c.text = textproto.NewConn(rwc)
+
+	if c.ID == "" {
+		myid := atomic.AddUint64(&reqid, 1)
+		c.ID = fmt.Sprintf("%s-%06d", c.server.Addr, myid)
+	}
+
+	if c.Log == nil {
+		c.Log = log.New(os.Stdout, c.ID+" ", log.Flags())
+	}
 }
 
 // Commands are dispatched to the appropriate handler functions.
@@ -212,6 +230,7 @@ func (c *Conn) State() ConnectionState {
 	state.Hostname = c.helo
 	state.LocalAddr = c.conn.LocalAddr()
 	state.RemoteAddr = c.conn.RemoteAddr()
+	state.Conn = c
 
 	return state
 }
@@ -410,6 +429,9 @@ func (c *Conn) handleMail(arg string) {
 	if err := c.Session().Mail(from, opts); err != nil {
 		if smtpErr, ok := err.(*SMTPError); ok {
 			c.WriteResponse(smtpErr.Code, smtpErr.EnhancedCode, smtpErr.Message)
+			if smtpErr.ForceClose {
+				c.Close()
+			}
 			return
 		}
 		c.WriteResponse(451, EnhancedCode{4, 0, 0}, err.Error())
@@ -498,6 +520,9 @@ func (c *Conn) handleRcpt(arg string) {
 	if err := c.Session().Rcpt(recipient); err != nil {
 		if smtpErr, ok := err.(*SMTPError); ok {
 			c.WriteResponse(smtpErr.Code, smtpErr.EnhancedCode, smtpErr.Message)
+			if smtpErr.ForceClose {
+				c.Close()
+			}
 			return
 		}
 		c.WriteResponse(451, EnhancedCode{4, 0, 0}, err.Error())
@@ -622,6 +647,8 @@ func (c *Conn) handleStartTLS() {
 		c.SetSession(nil)
 	}
 	c.reset()
+
+	c.Log.Println("STARTTLS Successed")
 }
 
 // DATA

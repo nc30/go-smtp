@@ -1,6 +1,7 @@
 package smtp
 
 import (
+	"context"
 	"errors"
 	"io"
 )
@@ -14,11 +15,11 @@ var (
 type Backend interface {
 	// Authenticate a user. Return smtp.ErrAuthUnsupported if you don't want to
 	// support this.
-	Login(state *ConnectionState, username, password string) (Session, error)
+	Login(ctx context.Context, state *ConnectionState, username, password string) (Session, error)
 
 	// Called if the client attempts to send mail without logging in first.
 	// Return smtp.ErrAuthRequired if you don't want to support this.
-	AnonymousLogin(state *ConnectionState) (Session, error)
+	AnonymousLogin(ctx context.Context, state *ConnectionState) (Session, error)
 }
 
 type BodyType string

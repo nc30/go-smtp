@@ -1,6 +1,7 @@
 package smtp
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/base64"
 	"errors"
@@ -48,12 +49,25 @@ type Conn struct {
 
 	fromReceived bool
 	recipients   []string
+
+	ctx context.Context
 }
 
 func newConn(c net.Conn, s *Server) *Conn {
 	sc := &Conn{
 		server: s,
 		conn:   c,
+	}
+
+	sc.init()
+	return sc
+}
+
+func newConnWithContext(ctx context.Context, c net.Conn, s *Server) *Conn {
+	sc := &Conn{
+		server: s,
+		conn:   c,
+		ctx:    ctx,
 	}
 
 	sc.init()
@@ -88,6 +102,10 @@ func (c *Conn) init() {
 	}
 
 	c.text = textproto.NewConn(rwc)
+
+	if c.ctx == nil {
+		c.ctx = context.Background()
+	}
 }
 
 // Commands are dispatched to the appropriate handler functions.
@@ -300,7 +318,7 @@ func (c *Conn) handleMail(arg string) {
 
 	if c.Session() == nil {
 		state := c.State()
-		session, err := c.server.Backend.AnonymousLogin(&state)
+		session, err := c.server.Backend.AnonymousLogin(c.ctx, &state)
 		if err != nil {
 			if smtpErr, ok := err.(*SMTPError); ok {
 				c.WriteResponse(smtpErr.Code, smtpErr.EnhancedCode, smtpErr.Message)

@@ -2,6 +2,7 @@ package smtp_test
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"io"
 	"io/ioutil"
@@ -44,7 +45,7 @@ type backend struct {
 	userErr     error
 }
 
-func (be *backend) Login(_ *smtp.ConnectionState, username, password string) (smtp.Session, error) {
+func (be *backend) Login(_ context.Context, _ *smtp.ConnectionState, username, password string) (smtp.Session, error) {
 	if be.userErr != nil {
 		return &session{}, be.userErr
 	}
@@ -60,7 +61,7 @@ func (be *backend) Login(_ *smtp.ConnectionState, username, password string) (sm
 	return &session{backend: be}, nil
 }
 
-func (be *backend) AnonymousLogin(_ *smtp.ConnectionState) (smtp.Session, error) {
+func (be *backend) AnonymousLogin(_ context.Context, _ *smtp.ConnectionState) (smtp.Session, error) {
 	if be.userErr != nil {
 		return &session{}, be.userErr
 	}

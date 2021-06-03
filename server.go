@@ -1,6 +1,7 @@
 package smtp
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"io"
@@ -71,6 +72,9 @@ type Server struct {
 	locker    sync.Mutex
 	listeners []net.Listener
 	conns     map[*Conn]struct{}
+
+	// optionally context generator
+	BaseContext func(net.Listener) context.Context
 }
 
 // New creates a new SMTP server.
@@ -91,7 +95,7 @@ func NewServer(be Backend) *Server {
 					}
 
 					state := conn.State()
-					session, err := be.Login(&state, username, password)
+					session, err := be.Login(conn.ctx, &state, username, password)
 					if err != nil {
 						return err
 					}
@@ -103,6 +107,14 @@ func NewServer(be Backend) *Server {
 		},
 		conns: make(map[*Conn]struct{}),
 	}
+}
+
+// generate context with listener
+func (s *Server) context(l net.Listener) context.Context {
+	if s.BaseContext != nil {
+		return s.BaseContext(l)
+	}
+	return context.Background()
 }
 
 // Serve accepts incoming connections on the Listener l.
@@ -123,16 +135,20 @@ func (s *Server) Serve(l net.Listener) error {
 			}
 		}
 
-		go s.handleConn(newConn(c, s))
+		go s.handleConn(c, l)
 	}
 }
 
-func (s *Server) handleConn(c *Conn) error {
+func (s *Server) handleConn(conn net.Conn, l net.Listener) error {
+	ctx, cancel := context.WithCancel(s.context(l))
+	c := newConnWithContext(ctx, conn, s)
+
 	s.locker.Lock()
 	s.conns[c] = struct{}{}
 	s.locker.Unlock()
 
 	defer func() {
+		cancel()
 		c.Close()
 
 		s.locker.Lock()
